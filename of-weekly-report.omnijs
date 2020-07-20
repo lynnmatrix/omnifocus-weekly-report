@@ -1,0 +1,202 @@
+/*{
+	"type": "action",
+	"targets": ["omnifocus"],
+	"author": "Lin Yiming",
+  "email": "lynnmatrix@hotmail.com",
+	"identifier": "com.omni-automation.of.weekly-report",
+	"version": "1.0",
+	"description": "Generete weekly report in markdown",
+	"label": "weekly report",
+	"shortLabel": "weekly report",
+	"paletteLabel": "weekly report",
+}*/
+
+
+
+(() => {
+  const completedTitle = "COMPLETED"
+  const todoTitle = "NEXT WEEK"
+  const targetFolderName = null
+  const emailTo = ""
+  const emailCc = "" 
+
+	var action = new PlugIn.Action(function(selection, sender){
+
+		let previousWeek = getPreviousWeek()
+		
+		let targetFolder = null != targetFolderName? folderNamed(targetFolderName):null
+		
+		var report = reportFolder(targetFolder, 0)
+		report.done.unshift(`## ${completedTitle}`)
+		report.plan.unshift(`## ${todoTitle}`)
+		var doneText = report.done.join('\n')
+		var planText = report.plan.join('\n')
+		let title = 'Weekly Report ' + formatDate(previousWeek[0])+'-' + formatDate(previousWeek[1])
+		let reportText = "# " + title  + "\n\n" + doneText +"\n\n"+ planText
+
+		var email = new Email()
+		email.subject = title
+		email.body = reportText
+		email.receiver = emailTo
+		email.carbonCopy = emailCc
+		email.generate()
+	});
+		
+	return action;
+})();
+
+function createReport() {
+	return {
+		'done': [],
+		'plan': []
+	}
+}
+function concatReport(baseReport, report, parent=null) {
+	if (parent && report.done.length > 0) {
+		baseReport.done = baseReport.done.concat([parent])	
+	}
+	if (parent && report.plan.length > 0) {
+		baseReport.plan = baseReport.plan.concat([parent])	
+	}
+
+	baseReport.done = baseReport.done.concat(report.done)
+	baseReport.plan = baseReport.plan.concat(report.plan)
+}
+
+function appendDone(baseReport, done) {
+	baseReport.done.push(done)
+}
+function appendPlan(baseReport, plan) {
+	baseReport.plan.push(plan)
+}
+
+function reportFolder(folder, level) {
+	var folderReport = createReport()
+	if (folder != null && folder.status != Folder.Status.Active) {
+		return folderReport
+	} 
+	let projectPrefix = Array(level+3).fill('#').join('') + " "
+
+	let subFolders = folder == null ? folders : folder.folders
+	subFolders.forEach((subFolder) => {
+		var subFolderReport = reportFolder(subFolder, level + 1)
+		concatReport(folderReport, subFolderReport, projectPrefix + subFolder.name)
+	})
+
+	let subProjects = folder == null ? projects : folder.projects
+	subProjects.forEach((subProject) => {
+		var subProjectReport = reportProject(subProject)
+		concatReport(folderReport, subProjectReport, projectPrefix + subProject.name)
+	})
+
+	return folderReport
+}
+
+function reportProject(project) {
+	var projectReport = createReport()
+	if (project.status != Project.Status.Active) {
+		return projectReport
+	} 
+
+	project.tasks.forEach((task) => {
+		_taskReport = reportTask(task, 0)
+		
+		concatReport(projectReport, _taskReport)
+	})
+	return projectReport
+}
+
+function reportTask(task, level) {
+	var intent = getIntent(level)
+	let taskTitle = generateTitle(level, task)
+
+	var taskReport = createReport()
+	var subTaskReport = createReport()
+
+	task.tasks.forEach((subTask) => {
+		concatReport(subTaskReport, reportTask(subTask, level + 1))
+	})
+	
+	concatReport(taskReport, subTaskReport, taskTitle)
+
+	if (taskReport.done.length == 0) {
+		
+		if (task.completed && duringPreviousWeek(task.completionDate)) {
+			appendDone(taskReport, taskTitle)
+			if (task.note) {
+				appendDone(taskReport, intent + "  * " + task.note)
+			}
+		} 
+	}
+
+	if (taskReport.plan.length == 0) {
+		//  不是所有未完成都会列为计划
+		if (![Task.Status.Completed, Task.Status.Dropped].includes(task.taskStatus)) {
+			if (task.deferDate == null || task.deferDate < getNextWeekEnd()) {
+				appendPlan(taskReport, taskTitle)
+			}
+		}
+	}
+
+	return taskReport
+}
+
+function generateTitle(level, task) {
+	let intent = getIntent(level)
+	let prefix = "- [" + (task.completed?"x":" ") + "] "
+	let tagText = task.tags.map(tag => ` @${tag.name}`).join('')
+	let dueText = (!task.completed && task.dueDate)? " =>|" + task.dueDate.toLocaleString(): ""
+	return intent + prefix + task.name + tagText + dueText
+}
+
+function duringPreviousWeek(date) {
+	let previousWeek = getPreviousWeek()
+	return date >= previousWeek[0] && date < previousWeek[1]
+}
+
+function getIntent(level) {
+	var intent = ""
+	for (i=0;i < level;i++) {
+		intent += "  "
+	}
+	return intent
+}
+
+function getPreviousWeek(){
+    var date = new Date();
+    var day = date.getDay();
+    var prevWeekStart = new Date();
+    if(date.getDay() == 0){
+			prevWeekStart.setDate(date.getDate() - 7);
+    } else {
+			prevWeekStart.setDate(date.getDate() - day);
+		}
+
+		var cal = Calendar.current
+		
+		prevWeekStart = cal.startOfDay(prevWeekStart)
+		var prevWeekEnd = new Date(prevWeekStart)
+		prevWeekEnd.setDate(prevWeekStart.getDate() + 7)
+    return [prevWeekStart, prevWeekEnd]
+}
+
+function getNextWeekEnd() {
+	var nextWeekEnd = new Date(getPreviousWeek()[1])
+	nextWeekEnd.setDate(nextWeekEnd.getDate + 7)
+	return nextWeekEnd
+}
+
+function formatDate(date) {
+
+	var d = new Date(date),
+			month = '' + (d.getMonth() + 1),
+			day = '' + d.getDate(),
+			year = d.getFullYear();
+
+	if (month.length < 2) 
+			month = '0' + month;
+	if (day.length < 2) 
+			day = '0' + day;
+
+	return [year, month, day].join('');
+}

@@ -4,19 +4,18 @@
 	"author": "Lin Yiming",
   "email": "lynnmatrix@hotmail.com",
 	"identifier": "com.omni-automation.of.weekly-report",
-	"version": "1.0",
+	"version": "1.2",
 	"description": "Generete weekly report in markdown",
 	"label": "weekly report",
 	"shortLabel": "weekly report",
 	"paletteLabel": "weekly report",
 }*/
 
-
-
 (() => {
-  const completedTitle = "COMPLETED"
-  const todoTitle = "NEXT WEEK"
-  const targetFolderName = null
+	const titlePrefix = "周志"
+  const completedTitle = "本周进展"
+  const todoTitle = "下周计划"
+  const targetFolderName = ""
   const emailTo = ""
   const emailCc = "" 
 
@@ -26,13 +25,17 @@
 		
 		let targetFolder = null != targetFolderName? folderNamed(targetFolderName):null
 		
-		var report = reportFolder(targetFolder, 0)
-		report.done.unshift(`## ${completedTitle}`)
-		report.plan.unshift(`## ${todoTitle}`)
-		var doneText = report.done.join('\n')
-		var planText = report.plan.join('\n')
-		let title = 'Weekly Report ' + formatDate(previousWeek[0])+'-' + formatDate(previousWeek[1])
-		let reportText = "# " + title  + "\n\n" + doneText +"\n\n"+ planText
+		var report = reportFolder(targetFolder, 0, "DONE")
+
+		report.unshift(`${completedTitle}`)
+		var doneText = report.join('\n')
+
+		var report = reportFolder(targetFolder, 0, "PLAN")
+		report.unshift(`${todoTitle}`)
+		var planText = report.join('\n')
+
+		let title = '周志 ' + formatDate(previousWeek[0])+'-' + formatDate(previousWeek[1])
+		let reportText = doneText +"\n\n"+ planText
 
 		var email = new Email()
 		email.subject = title
@@ -46,94 +49,136 @@
 })();
 
 function createReport() {
-	return {
-		'done': [],
-		'plan': []
-	}
-}
-function concatReport(baseReport, report, parent=null) {
-	if (parent && report.done.length > 0) {
-		baseReport.done = baseReport.done.concat([parent])	
-	}
-	if (parent && report.plan.length > 0) {
-		baseReport.plan = baseReport.plan.concat([parent])	
-	}
-
-	baseReport.done = baseReport.done.concat(report.done)
-	baseReport.plan = baseReport.plan.concat(report.plan)
+	return []
 }
 
-function appendDone(baseReport, done) {
-	baseReport.done.push(done)
-}
-function appendPlan(baseReport, plan) {
-	baseReport.plan.push(plan)
+function getIntent(level) {
+	var intent = ""
+	for (i=2;i < level;i++) {
+		intent += "  "
+	}
+	return intent
 }
 
-function reportFolder(folder, level) {
+function getListPrefix(level, order) {
+	intent = getIntent(level)
+	chinese_prefix = ['', '一','二','三','四','五','六','七','八','九','十']
+	prefix = "*"
+	if (level == 1) {
+		prefix = chinese_prefix[order]+"."
+	} else if (level == 2) {
+		prefix = order+"."
+	} else if (level == 3) {
+		prefix = '(' + order + ')'
+	} else if (level == 4) {
+		prefix = order + ')'
+	}
+	return intent + prefix
+}
+
+function reportFolder(folder, level, focus="DONE") {
 	var folderReport = createReport()
 	if (folder != null && folder.status != Folder.Status.Active) {
 		return folderReport
 	} 
-	let projectPrefix = Array(level+3).fill('#').join('') + " "
 
 	let subFolders = folder == null ? folders : folder.folders
+	var order = 1
 	subFolders.forEach((subFolder) => {
-		var subFolderReport = reportFolder(subFolder, level + 1)
-		concatReport(folderReport, subFolderReport, projectPrefix + subFolder.name)
+
+		var subFolderReport = reportFolder(subFolder, level+1, focus)
+		
+		if (subFolderReport.length > 0) {
+			let projectPrefix = getListPrefix(level+1, order)
+			folderReport.push(projectPrefix + subFolder.name)
+			folderReport = folderReport.concat(subFolderReport)
+			if (order > 1) {
+				folderReport.push("\n")
+			}
+			order += 1
+		}
 	})
 
 	let subProjects = folder == null ? projects : folder.projects
-	subProjects.forEach((subProject) => {
-		var subProjectReport = reportProject(subProject)
-		concatReport(folderReport, subProjectReport, projectPrefix + subProject.name)
+	subProjects.forEach((subProject, index) => {
+		var subProjectReport = reportProject(subProject, level+1, focus)
+
+		if (subProjectReport.length > 0) {
+			let projectPrefix = getListPrefix(level+1, order)
+			folderReport.push(projectPrefix + subProject.name)
+			folderReport = folderReport.concat(subProjectReport)
+			if (order > 1) {
+				folderReport.push("\n")
+			}
+			order += 1
+		}
 	})
 
 	return folderReport
 }
 
-function reportProject(project) {
+function reportProject(project, level, focus) {
 	var projectReport = createReport()
 	if (project.status != Project.Status.Active) {
 		return projectReport
 	} 
 
+	var order = 1
 	project.tasks.forEach((task) => {
-		_taskReport = reportTask(task, 0)
-		
-		concatReport(projectReport, _taskReport)
+		_taskReport = reportTask(task, level+1, order, focus)
+		if(_taskReport.length > 0) {
+			let projectPrefix = getListPrefix(level+1, order)
+			projectReport = projectReport.concat(_taskReport)
+			if (order > 1) {
+				//projectReport.push("\n")
+			}
+			order += 1
+		}
 	})
 	return projectReport
 }
 
-function reportTask(task, level) {
-	var intent = getIntent(level)
-	let taskTitle = generateTitle(level, task)
+function reportTask(task, level, order, focus) {
+	let taskTitle = generateTitle(level, order, task)
 
 	var taskReport = createReport()
 	var subTaskReport = createReport()
-
+	_order = 1
 	task.tasks.forEach((subTask) => {
-		concatReport(subTaskReport, reportTask(subTask, level + 1))
-	})
-	
-	concatReport(taskReport, subTaskReport, taskTitle)
+		_taskReport = reportTask(subTask, level + 1, _order, focus)
 
-	if (taskReport.done.length == 0) {
-		
-		if (task.completed && duringPreviousWeek(task.completionDate)) {
-			appendDone(taskReport, taskTitle)
-			if (task.note) {
-				appendDone(taskReport, intent + "  * " + task.note)
-			}
-		} 
+		if(_taskReport.length > 0) {
+			subTaskReport = subTaskReport.concat(_taskReport)
+			_order += 1
+		}
+	})
+	if (subTaskReport.length > 0) {
+		taskReport.push(taskTitle)
+		taskReport = taskReport.concat(subTaskReport)
 	}
 
-	if (taskReport.plan.length == 0) {
-		//  不是所有未完成都会列为计划
-		if (![Task.Status.Completed, Task.Status.Dropped].includes(task.taskStatus)) {
+	if (taskReport.length == 0) {
+		
+		if (focus == "DONE" 
+				&& task.completed 
+				&& duringPreviousWeek(task.completionDate)) {
+			
+			taskReport.push(taskTitle)
+			if (task.note) {
+				notes = task.note.split("\n")
+				var intent = getIntent(level)
+				const prefixReg = /^[\d\*]/
+
+				notes.forEach((_note) => {
+					let _prefix = prefixReg.test(_note)? "  ": "  * "
+					taskReport.push(intent + _prefix + _note)
+				})	
+			}
+		} else if (focus == "PLAN" 
+							&& ![Task.Status.Completed, Task.Status.Dropped].includes(task.taskStatus)) {
+			//  不是所有未完成都会列为计划
 			if (task.deferDate == null || task.deferDate < getNextWeekEnd()) {
-				appendPlan(taskReport, taskTitle)
+				taskReport.push(taskTitle)
 			}
 		}
 	}
@@ -141,12 +186,11 @@ function reportTask(task, level) {
 	return taskReport
 }
 
-function generateTitle(level, task) {
-	let intent = getIntent(level)
-	let prefix = "- [" + (task.completed?"x":" ") + "] "
+function generateTitle(level, order, task) {
+	let prefix = getListPrefix(level, order)
 	let tagText = task.tags.map(tag => ` @${tag.name}`).join('')
 	let dueText = (!task.completed && task.dueDate)? " =>|" + task.dueDate.toLocaleString(): ""
-	return intent + prefix + task.name + tagText + dueText
+	return prefix + task.name + tagText + dueText
 }
 
 function duringPreviousWeek(date) {
@@ -154,30 +198,19 @@ function duringPreviousWeek(date) {
 	return date >= previousWeek[0] && date < previousWeek[1]
 }
 
-function getIntent(level) {
-	var intent = ""
-	for (i=0;i < level;i++) {
-		intent += "  "
-	}
-	return intent
-}
-
 function getPreviousWeek(){
-    var date = new Date();
-    var day = date.getDay();
-    var prevWeekStart = new Date();
-    if(date.getDay() == 0){
-			prevWeekStart.setDate(date.getDate() - 7);
-    } else {
-			prevWeekStart.setDate(date.getDate() - day);
-		}
+	var date = new Date();
+	var day = date.getDay();
+	var prevWeekStart = new Date();
+	
+	prevWeekStart.setDate(date.getDate() - day - 1);
 
-		var cal = Calendar.current
-		
-		prevWeekStart = cal.startOfDay(prevWeekStart)
-		var prevWeekEnd = new Date(prevWeekStart)
-		prevWeekEnd.setDate(prevWeekStart.getDate() + 7)
-    return [prevWeekStart, prevWeekEnd]
+	var cal = Calendar.current
+	
+	prevWeekStart = cal.startOfDay(prevWeekStart)
+	var prevWeekEnd = new Date(prevWeekStart)
+	prevWeekEnd.setDate(prevWeekStart.getDate() + 7)
+	return [prevWeekStart, prevWeekEnd]
 }
 
 function getNextWeekEnd() {

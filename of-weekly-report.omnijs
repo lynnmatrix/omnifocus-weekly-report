@@ -15,7 +15,7 @@
 	const titlePrefix = "周志"
   const completedTitle = "本周进展"
   const todoTitle = "下周计划"
-  const targetFolderName = ""
+	const targetFolderName = ""
   const emailTo = ""
   const emailCc = "" 
 
@@ -215,7 +215,7 @@ function getPreviousWeek(){
 
 function getNextWeekEnd() {
 	var nextWeekEnd = new Date(getPreviousWeek()[1])
-	nextWeekEnd.setDate(nextWeekEnd.getDate + 7)
+	nextWeekEnd.setDate(nextWeekEnd.getDate() + 7)
 	return nextWeekEnd
 }
 
